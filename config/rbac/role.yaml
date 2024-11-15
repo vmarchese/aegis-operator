@@ -1,0 +1,162 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - awsproviders
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - awsproviders/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - awsproviders/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - azureproviders
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - azureproviders/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - azureproviders/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - egresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - egresses/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - egresses/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - hashicorpvaultproviders
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - hashicorpvaultproviders/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - hashicorpvaultproviders/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - identities
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - identities/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - identities/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - ingresses/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - ingresses/status
+  verbs:
+  - get
+  - patch
+  - update

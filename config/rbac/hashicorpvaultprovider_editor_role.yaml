@@ -1,0 +1,27 @@
+# permissions for end users to edit hashicorpvaultproviders.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: hashicorpvaultprovider-editor-role
+rules:
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - hashicorpvaultproviders
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - hashicorpvaultproviders/status
+  verbs:
+  - get

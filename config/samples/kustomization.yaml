@@ -1,0 +1,9 @@
+## Append samples of your project ##
+resources:
+- aegis_v1_identity.yaml
+- aegis_v1_egress.yaml
+- aegis_v1_ingress.yaml
+- aegis_v1_azureprovider.yaml
+- aegis_v1_awsprovider.yaml
+- aegis_v1_hashicorpvaultprovider.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples
