@@ -171,6 +171,7 @@ func (h *IdentityHelper) createIdentity(ctx context.Context, client *vault_clien
 		Key:      AegisKeyName,
 		Template: h.tokenTemplateB64,
 		Ttl:      TokenTTL,
+		ClientId: saName,
 	})
 	if err != nil {
 		return nil, err
