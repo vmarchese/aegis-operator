@@ -1,4 +1,4 @@
-package azure
+package aws
 
 import (
 	"context"
