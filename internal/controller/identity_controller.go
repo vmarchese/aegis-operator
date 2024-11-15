@@ -71,7 +71,7 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	vault, err := r.findProvider(ctx, req, identity.Spec.Provider)
+	idProvider, err := r.findProvider(ctx, req, identity.Spec.Provider)
 	if err != nil {
 		log.Error(err, "Failed to find provider")
 		return ctrl.Result{}, err
@@ -80,7 +80,7 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// check deletion timestamp
 	if !identity.ObjectMeta.DeletionTimestamp.IsZero() {
 		log.Info("identity is being deleted")
-		err = vault.DeleteIdentity(ctx, identity)
+		err = idProvider.DeleteIdentity(ctx, identity)
 		if err != nil {
 			log.Error(err, "Failed to delete identity on vault")
 			return ctrl.Result{}, err
@@ -121,13 +121,13 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	meta.SetStatusCondition(&identity.Status.Conditions,
 		metav1.Condition{Type: typeAvailableIdentity, Status: metav1.ConditionTrue, Reason: "Reconciled", Message: "Identity reconciled"})
-	identity.Status.Provider = aegisv1.HashicorpVaultProviderType
+	identity.Status.Provider = idProvider.GetName()
 	if err := r.Status().Update(ctx, identity); err != nil {
 		log.Error(err, "Failed to update Identity status")
 		return ctrl.Result{}, err
 	}
 
-	idmeta, err := vault.CreateIdentity(ctx, identity)
+	idmeta, err := idProvider.CreateIdentity(ctx, identity)
 	if err != nil {
 		log.Error(err, "Failed to create identity on vault")
 		return ctrl.Result{}, err

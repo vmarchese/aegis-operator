@@ -7,7 +7,13 @@ import (
 	aegisv1 "github.com/vmarchese/aegis-operator/api/v1"
 )
 
+const ProviderName = "kubernetes"
+
 type IdentityHelper struct {
+}
+
+func (h *IdentityHelper) GetName() string {
+	return ProviderName
 }
 
 func (h *IdentityHelper) CreateIdentity(ctx context.Context, identity *aegisv1.Identity) (map[string]string, error) {

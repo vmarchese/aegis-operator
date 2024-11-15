@@ -34,6 +34,10 @@ path "identity/oidc/role/*" {
 path "identity/entity-alias" {
     capabilities = ["create", "read", "update","delete"]
 }
+
+path "identity/entity-alias/id/*" {
+    capabilities = [ "read","delete"]
+}
 path "auth/jwt/role/*"{
     capabilities = ["create", "read", "update","delete"]
 }
@@ -53,4 +57,22 @@ vault write auth/jwt/role/aegis \
    policies="aegis-operator" \
    ttl="1h"
 ```   
+
+5. Create the `jwt_issuer` policy
+```
+path "identity/oidc/token/*" {capabilities = ["create","read"]}
+```
+
+
+6. Create a named key 
+```
+POST {{vault_address}}/v1/identity/oidc/key/aegis-key
+X-Vault-Token: {{vault_token}}
+
+{
+    "name": "aegis-key",
+    "allowed_client_ids": ["*"]
+}
+```
+
 

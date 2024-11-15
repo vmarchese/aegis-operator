@@ -2,6 +2,8 @@ package hashicorpvault
 
 import (
 	"context"
+	_ "embed"
+	"encoding/base64"
 	"fmt"
 	"os"
 
@@ -11,12 +13,39 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const (
+	ProviderName = "hashicorp.vault"
+	AegisKeyName = "aegis-key"
+	TokenTTL     = "1h"
+
+	MetaAegisVersion   = "aegis_version"
+	MetaAegisIdentity  = "aegis_identity_name"
+	MetaAegisNamespace = "aegis_identity_namespace"
+
+	StatusMetaAegisIdentityID   = "aegis.identity.id"
+	StatusMetaAegisVaultAddress = "aegis.identity.vault.address"
+	StatusMetaAegisProvider     = "aegis.identity.provider"
+
+	AegisOperatorRole = "aegis"
+
+	K8STokenPath = "/var/run/secrets/tokens/token"
+)
+
+//go:embed tokenTemplate.tpl
+var tokenTemplate string
+
 type IdentityHelper struct {
-	vaultAddress string
+	vaultAddress     string
+	tokenTemplateB64 string
 }
 
 func New(vaultAddress string) *IdentityHelper {
-	return &IdentityHelper{vaultAddress: vaultAddress}
+	tokenTemplateB64 := base64.StdEncoding.EncodeToString([]byte(tokenTemplate))
+	return &IdentityHelper{vaultAddress: vaultAddress, tokenTemplateB64: tokenTemplateB64}
+}
+
+func (h *IdentityHelper) GetName() string {
+	return ProviderName
 }
 
 func (h *IdentityHelper) CreateIdentity(ctx context.Context, identity *aegisv1.Identity) (map[string]string, error) {
@@ -89,9 +118,9 @@ func (h *IdentityHelper) createIdentity(ctx context.Context, client *vault_clien
 	resp, err := client.Identity.EntityCreate(ctx, vault_client_schema.EntityCreateRequest{
 		Name: saName,
 		Metadata: map[string]interface{}{
-			"platform":  "aegis",
-			"identity":  identity.Name,
-			"namespace": identity.Namespace,
+			MetaAegisVersion:   "1.0",
+			MetaAegisIdentity:  identity.Name,
+			MetaAegisNamespace: identity.Namespace,
 		},
 	})
 	if err != nil {
@@ -139,9 +168,9 @@ func (h *IdentityHelper) createIdentity(ctx context.Context, client *vault_clien
 	log.Info("created alias", "response", resp)
 
 	resp, err = client.Identity.OidcWriteRole(ctx, identity.Name, vault_client_schema.OidcWriteRoleRequest{
-		Key:      "aegis-key",
-		Template: "ewogICAibmFtZSI6IHt7aWRlbnRpdHkuZW50aXR5Lm5hbWV9fSwKICAgInBsYXRmb3JtIjoge3tpZGVudGl0eS5lbnRpdHkubWV0YWRhdGEucGxhdGZvcm19fSwKICAgIm5iZiI6IHt7dGltZS5ub3d9fQp9",
-		Ttl:      "1h",
+		Key:      AegisKeyName,
+		Template: h.tokenTemplateB64,
+		Ttl:      TokenTTL,
 	})
 	if err != nil {
 		return nil, err
@@ -149,9 +178,9 @@ func (h *IdentityHelper) createIdentity(ctx context.Context, client *vault_clien
 	log.Info("created oidc role", "response", resp)
 
 	return map[string]string{
-		"aegis.identity.id":            entityId,
-		"aegis.identity.provider":      "hashicorp.vault",
-		"aegis.identity.vault.address": h.vaultAddress,
+		StatusMetaAegisIdentityID:   entityId,
+		StatusMetaAegisProvider:     ProviderName,
+		StatusMetaAegisVaultAddress: h.vaultAddress,
 	}, nil
 
 }
@@ -166,7 +195,7 @@ func (h *IdentityHelper) getClient(ctx context.Context) (*vault_client.Client, e
 		return nil, err
 	}
 
-	token, err := os.ReadFile("/var/run/secrets/tokens/token")
+	token, err := os.ReadFile(K8STokenPath)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +203,7 @@ func (h *IdentityHelper) getClient(ctx context.Context) (*vault_client.Client, e
 
 	authInfo, err := client.Auth.JwtLogin(ctx, vault_client_schema.JwtLoginRequest{
 		Jwt:  string(token),
-		Role: "aegis",
+		Role: AegisOperatorRole,
 	})
 	if err != nil {
 		log.Error(err, "unable to log in with Kubernetes auth")
