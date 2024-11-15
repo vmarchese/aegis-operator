@@ -3,8 +3,6 @@
 # It should be run by config/default
 resources:
 - bases/aegis.aegisproxy.io_identities.yaml
-- bases/aegis.aegisproxy.io_egresses.yaml
-- bases/aegis.aegisproxy.io_ingresses.yaml
 - bases/aegis.aegisproxy.io_azureproviders.yaml
 - bases/aegis.aegisproxy.io_awsproviders.yaml
 - bases/aegis.aegisproxy.io_hashicorpvaultproviders.yaml
@@ -18,8 +16,6 @@ patches:
 # [CERTMANAGER] To enable cert-manager, uncomment all the sections with [CERTMANAGER] prefix.
 # patches here are for enabling the CA injection for each CRD
 #- path: patches/cainjection_in_identities.yaml
-#- path: patches/cainjection_in_egresses.yaml
-#- path: patches/cainjection_in_ingresses.yaml
 #- path: patches/cainjection_in_azureproviders.yaml
 #- path: patches/cainjection_in_awsproviders.yaml
 #- path: patches/cainjection_in_hashicorpvaultproviders.yaml
