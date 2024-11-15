@@ -1,8 +1,14 @@
-# operator
-// TODO(user): Add simple overview of use/purpose
+# AEGIS operator
+The AEGIS operator will be able to:
+- create identities on Azure Entra ID, AWS IAM, Hashicorp Vault
+- inject an egress proxy into a pod to intercept the traffic and inject authentication tokens
+- inject an ingress proxy into a pod to check the authentication token
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+## Setup
+- [Hashicorp Vault](./docs/hashicorpvault.md)
+
+
+
 
 ## Getting Started
 
