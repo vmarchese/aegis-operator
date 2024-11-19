@@ -49,6 +49,10 @@ const (
 	outboundPort = "3128"
 	inboundPort  = "3127"
 	userID       = 1137
+
+	tokenMountPath    = "/var/run/secrets/tokens"
+	tokenFile         = "token"
+	expirationSeconds = 7200
 )
 
 //go:embed iptables-egress.sh
@@ -185,12 +189,33 @@ func (m *PodWebhook) injectProxy(pod *corev1.Pod, proxyType string, iptablesScri
 				"--outport", outboundPort,
 				"-vvvvv",
 			},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      "satoken",
+					MountPath: tokenMountPath,
+				},
+			},
 		}
 		pod.Spec.Containers = append(pod.Spec.Containers, aegisProxyContainer)
 	}
 
 	// Inject the init container if not already present
 	if !hasContainer(pod, initContainerName) {
+		exp := int64(expirationSeconds)
+
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "satoken",
+			VolumeSource: corev1.VolumeSource{
+				Projected: &corev1.ProjectedVolumeSource{
+					Sources: []corev1.VolumeProjection{
+						{ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+							Path:              "token",
+							Audience:          "vault", //TODO: depends on the identity
+							ExpirationSeconds: &exp,
+						}}},
+				},
+			},
+		})
 		log.Info("injecting aegis-iptables init container", "name", pod.Name)
 		initContainer := corev1.Container{
 			Name:  initContainerName,
