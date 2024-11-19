@@ -45,6 +45,10 @@ const (
 	aegisIpTablesImage      = "registry.localhost:5000/aegis-iptables:1.0"
 
 	initContainerName = "aegis-init"
+
+	outboundPort = "3128"
+	inboundPort  = "3127"
+	userID       = 1137
 )
 
 //go:embed iptables-egress.sh
@@ -138,13 +142,14 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 	log.Info("injecting proxy", "name", pod.Name, "type", proxyType)
 
+	userIDs := fmt.Sprintf("%d", userID)
 	switch proxyType {
 	case egressType:
-		iptablesScript = iptablesEgressScript
+		iptablesScript = fmt.Sprintf(iptablesEgressScript, userIDs, outboundPort)
 	case ingressType:
-		iptablesScript = fmt.Sprintf(iptablesIngressScript, port)
+		iptablesScript = fmt.Sprintf(iptablesIngressScript, userIDs, inboundPort, port)
 	case ingressEgressType:
-		iptablesScript = fmt.Sprintf(iptablesIngressEgressScript, port)
+		iptablesScript = fmt.Sprintf(iptablesIngressEgressScript, userIDs, inboundPort, outboundPort, port)
 	}
 	if err := m.injectProxy(pod, proxyType, iptablesScript); err != nil {
 		return err
@@ -156,7 +161,7 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 // injectProxy injects the proxy and init containers based on the proxy type
 func (m *PodWebhook) injectProxy(pod *corev1.Pod, proxyType string, iptablesScript string) error {
 	log := podwebhooklog.WithValues("name", pod.Name)
-	userID := int64(1137)
+	userID := int64(userID)
 	proxyContainerName := aegisProxyContainerName
 
 	// Inject the aegis-proxy container if not already present
@@ -176,6 +181,8 @@ func (m *PodWebhook) injectProxy(pod *corev1.Pod, proxyType string, iptablesScri
 			Args: []string{
 				"run",
 				"--type", proxyType,
+				"--inport", inboundPort,
+				"--outport", outboundPort,
 				"-vvvvv",
 			},
 		}
