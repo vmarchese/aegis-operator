@@ -21,6 +21,7 @@ import (
 	_ "embed"
 	"fmt"
 	"net/http"
+	"os"
 
 	corev1 "k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -187,6 +188,7 @@ func (m *PodWebhook) injectProxy(pod *corev1.Pod, proxyType string, iptablesScri
 				"--type", proxyType,
 				"--inport", inboundPort,
 				"--outport", outboundPort,
+				"--token", fmt.Sprintf("%s%c%s", tokenMountPath, os.PathSeparator, tokenFile),
 				"-vvvvv",
 			},
 			VolumeMounts: []corev1.VolumeMount{
