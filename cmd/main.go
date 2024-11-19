@@ -129,20 +129,6 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Identity")
 		os.Exit(1)
 	}
-	if err = (&controller.EgressReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Egress")
-		os.Exit(1)
-	}
-	if err = (&controller.IngressReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Ingress")
-		os.Exit(1)
-	}
 	if err = (&controller.AzureProviderReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -162,6 +148,10 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HashicorpVaultProvider")
+		os.Exit(1)
+	}
+	if err = (&aegisv1.PodWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "PodWebhook")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

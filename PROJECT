@@ -26,24 +26,6 @@ resources:
   controller: true
   domain: aegisproxy.io
   group: aegis
-  kind: Egress
-  path: github.com/vmarchese/aegis-operator/api/v1
-  version: v1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: aegisproxy.io
-  group: aegis
-  kind: Ingress
-  path: github.com/vmarchese/aegis-operator/api/v1
-  version: v1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: aegisproxy.io
-  group: aegis
   kind: AzureProvider
   path: github.com/vmarchese/aegis-operator/api/v1
   version: v1
@@ -65,4 +47,12 @@ resources:
   kind: HashicorpVaultProvider
   path: github.com/vmarchese/aegis-operator/api/v1
   version: v1
+- domain: aegisproxy.io
+  group: aegis
+  kind: PodWebhook
+  path: github.com/vmarchese/aegis-operator/api/v1
+  version: v1
+  webhooks:
+    defaulting: true
+    webhookVersion: v1
 version: "3"

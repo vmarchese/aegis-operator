@@ -26,9 +26,5 @@ resources:
 - awsprovider_viewer_role.yaml
 - azureprovider_editor_role.yaml
 - azureprovider_viewer_role.yaml
-- ingress_editor_role.yaml
-- ingress_viewer_role.yaml
-- egress_editor_role.yaml
-- egress_viewer_role.yaml
 - identity_editor_role.yaml
 - identity_viewer_role.yaml
