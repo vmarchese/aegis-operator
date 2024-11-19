@@ -220,6 +220,7 @@ func (m *PodWebhook) injectProxy(pod *corev1.Pod, identity string, proxyType str
 			"--inport", inboundPort,
 			"--outport", outboundPort,
 			"--token", fmt.Sprintf("%s%c%s", tokenMountPath, os.PathSeparator, tokenFile),
+			"--identity", serviceAccount,
 			"-vvvvv",
 		}
 		args = append(args, providerArgs...)
