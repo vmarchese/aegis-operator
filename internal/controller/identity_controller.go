@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,6 +46,7 @@ type IdentityReconciler struct {
 //+kubebuilder:rbac:groups=aegis.aegisproxy.io,resources=identities,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=aegis.aegisproxy.io,resources=identities/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=aegis.aegisproxy.io,resources=identities/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;create;update;delete;list;watch;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -92,6 +94,18 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, err
 			}
 		}
+
+		// delete service account
+		err = r.Delete(ctx, &corev1.ServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      identity.Name,
+				Namespace: identity.Namespace,
+			},
+		})
+		if err != nil {
+			log.Error(err, "Failed to delete service account")
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -137,6 +151,28 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err := r.Status().Update(ctx, identity); err != nil {
 		log.Error(err, "Failed to update Identity status")
 		return ctrl.Result{}, err
+	}
+
+	// creating service account if not exists
+	serviceAccount := &corev1.ServiceAccount{}
+	err = r.Get(ctx, client.ObjectKey{Name: identity.Name, Namespace: identity.Namespace}, serviceAccount)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Error(err, "Failed to get service account")
+			serviceAccount = &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      identity.Name,
+					Namespace: identity.Namespace,
+				},
+			}
+			if err := r.Create(ctx, serviceAccount); err != nil {
+				log.Error(err, "Failed to create service account")
+				return ctrl.Result{}, err
+			}
+		} else {
+			log.Error(err, "Failed to get service account")
+			return ctrl.Result{}, err
+		}
 	}
 
 	log.Info("Reconciled IdentitySpec", "spec", identity.Spec)

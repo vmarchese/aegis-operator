@@ -25,7 +25,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	client "sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -35,6 +37,7 @@ const (
 	annotationIngressKey  = "aegisproxy.io/ingress"
 	annotationIngressPort = "aegisproxy.io/ingress.port"
 	annotationType        = "aegisproxy.io/type"
+	annotationIdentity    = "aegisproxy.io/identity"
 	annotationValue       = "true"
 
 	ingressType       = "ingress"
@@ -66,7 +69,8 @@ var iptablesIngressScript string
 var iptablesIngressEgressScript string
 
 type PodWebhook struct {
-	decoder *admission.Decoder
+	decoder    *admission.Decoder
+	kubeClient client.Client
 }
 
 var _ admission.CustomDefaulter = &PodWebhook{}
@@ -82,17 +86,20 @@ func (m *PodWebhook) InjectDecoder(d *admission.Decoder) error {
 var podwebhooklog = logf.Log.WithName("podwebhook-resource")
 
 // SetupWebhookWithManager will setup the manager to manage the webhooks
-func (r *PodWebhook) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	fmt.Println("SetupWebhookWithManager")
+func (m *PodWebhook) SetupWebhookWithManager(mgr ctrl.Manager) error {
+
+	m.kubeClient = mgr.GetClient()
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&corev1.Pod{}).
-		WithDefaulter(r).
+		WithDefaulter(m).
 		Complete()
 }
 
 // TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 
 //+kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=mpodwebhook.kb.io,admissionReviewVersions=v1
+//+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=identities,verbs=get;list;watch
+//+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=hashicorpvaultproviders,verbs=get;list;watch
 
 func (m *PodWebhook) Handle(ctx context.Context, req admission.Request) admission.Response {
 	fmt.Println("Handle")
@@ -119,12 +126,19 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	iptablesScript := ""
 	mustInject := false
 	port := ""
+	identity := ""
 
 	// Check for presence of annotations
 	if value, ok := pod.Annotations[annotationEgressKey]; ok && value == annotationValue {
 		log.Info("egress annotation found", "name", pod.Name)
 		proxyType = egressType
 		iptablesScript = iptablesEgressScript
+		// if egress annotation is present, we need to check for identity annotation
+		if identityValue, ok := pod.Annotations[annotationIdentity]; ok && identityValue != "" {
+			identity = identityValue
+		} else {
+			return fmt.Errorf("identity is not set for egress proxy")
+		}
 		mustInject = true
 	}
 	if value, ok := pod.Annotations[annotationIngressKey]; ok && value == annotationValue {
@@ -145,7 +159,7 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		log.Info("no proxy type found, skipping", "name", pod.Name)
 		return nil // No mutation required
 	}
-	log.Info("injecting proxy", "name", pod.Name, "type", proxyType)
+	log.Info("injecting proxy", "name", pod.Name, "type", proxyType, "identity", identity)
 
 	userIDs := fmt.Sprintf("%d", userID)
 	switch proxyType {
@@ -156,7 +170,8 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	case ingressEgressType:
 		iptablesScript = fmt.Sprintf(iptablesIngressEgressScript, userIDs, inboundPort, outboundPort, port)
 	}
-	if err := m.injectProxy(pod, proxyType, iptablesScript); err != nil {
+
+	if err := m.injectProxy(pod, identity, proxyType, iptablesScript); err != nil {
 		return err
 	}
 
@@ -164,13 +179,50 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 }
 
 // injectProxy injects the proxy and init containers based on the proxy type
-func (m *PodWebhook) injectProxy(pod *corev1.Pod, proxyType string, iptablesScript string) error {
+func (m *PodWebhook) injectProxy(pod *corev1.Pod, identity string, proxyType string, iptablesScript string) error {
 	log := podwebhooklog.WithValues("name", pod.Name)
 	userID := int64(userID)
 	proxyContainerName := aegisProxyContainerName
+	serviceAccount := identity
+
+	// provider args
+	providerArgs := []string{}
+	// getting identity
+	if serviceAccount != "" {
+		identityObj := Identity{}
+		if err := m.kubeClient.Get(context.Background(), types.NamespacedName{Namespace: pod.Namespace, Name: identity}, &identityObj); err != nil {
+			return fmt.Errorf("failed to get identity %s: %v", identity, err)
+		}
+		providerType := identityObj.Status.Provider
+		switch providerType {
+		case "hashicorp.vault":
+			vault := HashicorpVaultProvider{}
+			if err := m.kubeClient.Get(context.Background(), types.NamespacedName{Namespace: pod.Namespace, Name: identityObj.Spec.Provider}, &vault); err != nil {
+				return fmt.Errorf("failed to get hashicorp vault provider %s: %v", identityObj.Spec.Provider, err)
+			}
+			log.Info("vault provider", "name", pod.Name, "address", vault.Spec.VaultAddress)
+			providerArgs = append(providerArgs,
+				"--identity-provider", "hashicorp.vault",
+				"--vault-address", vault.Spec.VaultAddress)
+		}
+		log.Info("provider type", "name", pod.Name, "type", providerType)
+	}
+
+	if serviceAccount == "" {
+		serviceAccount = "default"
+	}
 
 	// Inject the aegis-proxy container if not already present
 	if !hasContainer(pod, proxyContainerName) {
+		args := []string{
+			"run",
+			"--type", proxyType,
+			"--inport", inboundPort,
+			"--outport", outboundPort,
+			"--token", fmt.Sprintf("%s%c%s", tokenMountPath, os.PathSeparator, tokenFile),
+			"-vvvvv",
+		}
+		args = append(args, providerArgs...)
 		log.Info("injecting aegis-proxy container", "name", pod.Name)
 		aegisProxyContainer := corev1.Container{
 			Name:            proxyContainerName,
@@ -183,14 +235,7 @@ func (m *PodWebhook) injectProxy(pod *corev1.Pod, proxyType string, iptablesScri
 			Command: []string{
 				"./aegisproxy",
 			},
-			Args: []string{
-				"run",
-				"--type", proxyType,
-				"--inport", inboundPort,
-				"--outport", outboundPort,
-				"--token", fmt.Sprintf("%s%c%s", tokenMountPath, os.PathSeparator, tokenFile),
-				"-vvvvv",
-			},
+			Args: args,
 			VolumeMounts: []corev1.VolumeMount{
 				{
 					Name:      "satoken",
@@ -199,6 +244,7 @@ func (m *PodWebhook) injectProxy(pod *corev1.Pod, proxyType string, iptablesScri
 			},
 		}
 		pod.Spec.Containers = append(pod.Spec.Containers, aegisProxyContainer)
+		pod.Spec.ServiceAccountName = serviceAccount
 	}
 
 	// Inject the init container if not already present
