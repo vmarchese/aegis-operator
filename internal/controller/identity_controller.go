@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	aegisv1 "github.com/vmarchese/aegis-operator/api/v1"
@@ -88,9 +89,13 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 
-		if containsString(identity.ObjectMeta.Finalizers, identityFinalizerName) {
-			identity.ObjectMeta.Finalizers = removeString(identity.ObjectMeta.Finalizers, identityFinalizerName)
+		if controllerutil.ContainsFinalizer(identity, identityFinalizerName) {
+			updated := controllerutil.RemoveFinalizer(identity, identityFinalizerName)
+			if !updated {
+				return ctrl.Result{}, err
+			}
 			if err := r.Update(ctx, identity); err != nil {
+				log.Error(err, "Failed to update Identity to remove finalizer")
 				return ctrl.Result{}, err
 			}
 		}
@@ -124,10 +129,14 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// appending finalizer
-	if !containsString(identity.ObjectMeta.Finalizers, identityFinalizerName) {
-		identity.ObjectMeta.Finalizers = append(identity.ObjectMeta.Finalizers, identityFinalizerName)
-		if err := r.Update(ctx, identity); err != nil {
+	if !controllerutil.ContainsFinalizer(identity, identityFinalizerName) {
+		updated := controllerutil.AddFinalizer(identity, identityFinalizerName)
+		if !updated {
 			log.Error(err, "Failed to update Identity with finalizer")
+			return ctrl.Result{}, err
+		}
+		if err := r.Update(ctx, identity); err != nil {
+			log.Error(err, "Failed to update Identity to add finalizer")
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
@@ -203,22 +212,4 @@ func (r *IdentityReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aegisv1.Identity{}).
 		Complete(r)
-}
-
-func containsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
-}
-func removeString(slice []string, s string) []string {
-	var result []string
-	for _, item := range slice {
-		if item != s {
-			result = append(result, item)
-		}
-	}
-	return result
 }

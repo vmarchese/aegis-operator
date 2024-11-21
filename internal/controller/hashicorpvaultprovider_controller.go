@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	aegisv1 "github.com/vmarchese/aegis-operator/api/v1"
@@ -102,10 +103,14 @@ func (r *HashicorpVaultProviderReconciler) Reconcile(ctx context.Context, req ct
 		}
 
 		// now delete the vault provider finalizer
-		if containsString(vault.ObjectMeta.Finalizers, hashicorpVaultFinalizerName) {
+		if controllerutil.ContainsFinalizer(vault, hashicorpVaultFinalizerName) {
 			log.Info("Deleting HashicorpVaultProvider finalizer")
-			vault.ObjectMeta.Finalizers = removeString(vault.ObjectMeta.Finalizers, hashicorpVaultFinalizerName)
+			updated := controllerutil.RemoveFinalizer(vault, hashicorpVaultFinalizerName)
+			if !updated {
+				return ctrl.Result{}, err
+			}
 			if err := r.Update(ctx, vault); err != nil {
+				log.Error(err, "Failed to update HashicorpVaultProvider to remove finalizer")
 				return ctrl.Result{}, err
 			}
 		}
@@ -130,10 +135,14 @@ func (r *HashicorpVaultProviderReconciler) Reconcile(ctx context.Context, req ct
 	}
 
 	// appending finalizer
-	if !containsString(vault.ObjectMeta.Finalizers, hashicorpVaultFinalizerName) {
-		vault.ObjectMeta.Finalizers = append(vault.ObjectMeta.Finalizers, hashicorpVaultFinalizerName)
-		if err := r.Update(ctx, vault); err != nil {
+	if !controllerutil.ContainsFinalizer(vault, hashicorpVaultFinalizerName) {
+		updated := controllerutil.AddFinalizer(vault, hashicorpVaultFinalizerName)
+		if !updated {
 			log.Error(err, "Failed to update HashicorpVaultProvider with finalizer")
+			return ctrl.Result{}, err
+		}
+		if err := r.Update(ctx, vault); err != nil {
+			log.Error(err, "Failed to update HashicorpVaultProvider to add finalizer")
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
