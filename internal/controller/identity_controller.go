@@ -100,17 +100,6 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			}
 		}
 
-		// delete service account
-		err = r.Delete(ctx, &corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      identity.Name,
-				Namespace: identity.Namespace,
-			},
-		})
-		if err != nil {
-			log.Error(err, "Failed to delete service account")
-			return ctrl.Result{}, err
-		}
 		return ctrl.Result{}, nil
 	}
 
@@ -182,6 +171,7 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 					Namespace: identity.Namespace,
 				},
 			}
+			ctrl.SetControllerReference(identity, serviceAccount, r.Scheme)
 			if err := r.Create(ctx, serviceAccount); err != nil {
 				log.Error(err, "Failed to create service account")
 				return ctrl.Result{}, err
