@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -32,6 +33,7 @@ import (
 
 const (
 	typeAvailableHashicorpVaultProvider = "Available"
+	hashicorpVaultFinalizerName         = "idprovider.aegis.aegisproxy.io"
 )
 
 // HashicorpVaultProviderReconciler reconciles a HashicorpVaultProvider object
@@ -70,6 +72,46 @@ func (r *HashicorpVaultProviderReconciler) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	if !vault.ObjectMeta.DeletionTimestamp.IsZero() {
+		log.Info("HashicorpVaultProvider is being deleted")
+		// delete all identities
+		// List all identities with matching provider label
+		identityList := &aegisv1.IdentityList{}
+		if err := r.List(ctx, identityList, client.MatchingLabels{
+			"aegis.aegisproxy.io/identity.provider": vault.Name,
+		}); err != nil {
+			log.Error(err, "Failed to list identities")
+			return ctrl.Result{}, err
+		}
+
+		// Delete each identity
+		for _, identity := range identityList.Items {
+			log.Info("Deleting identity", "identity", identity.Name)
+			if err := r.Delete(ctx, &identity); err != nil {
+				log.Error(err, "Failed to delete identity", "identity", identity.Name)
+				return ctrl.Result{}, err
+			}
+		}
+		// check for deletion
+		for _, identity := range identityList.Items {
+			idObj := &aegisv1.Identity{}
+			if err := r.Get(ctx, types.NamespacedName{Name: identity.Name, Namespace: identity.Namespace}, idObj); err == nil {
+				log.Error(err, "identity not deleted", "identity", identity.Name)
+				return ctrl.Result{Requeue: true}, nil
+			}
+		}
+
+		// now delete the vault provider finalizer
+		if containsString(vault.ObjectMeta.Finalizers, hashicorpVaultFinalizerName) {
+			log.Info("Deleting HashicorpVaultProvider finalizer")
+			vault.ObjectMeta.Finalizers = removeString(vault.ObjectMeta.Finalizers, hashicorpVaultFinalizerName)
+			if err := r.Update(ctx, vault); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
 	if len(vault.Status.Conditions) == 0 {
 		meta.SetStatusCondition(&vault.Status.Conditions,
 			metav1.Condition{Type: typeAvailableHashicorpVaultProvider,
@@ -87,6 +129,15 @@ func (r *HashicorpVaultProviderReconciler) Reconcile(ctx context.Context, req ct
 		}
 	}
 
+	// appending finalizer
+	if !containsString(vault.ObjectMeta.Finalizers, hashicorpVaultFinalizerName) {
+		vault.ObjectMeta.Finalizers = append(vault.ObjectMeta.Finalizers, hashicorpVaultFinalizerName)
+		if err := r.Update(ctx, vault); err != nil {
+			log.Error(err, "Failed to update HashicorpVaultProvider with finalizer")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
 	meta.SetStatusCondition(&vault.Status.Conditions,
 		metav1.Condition{Type: typeAvailableHashicorpVaultProvider,
 			Status:  metav1.ConditionTrue,

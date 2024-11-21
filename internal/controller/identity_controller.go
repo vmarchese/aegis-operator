@@ -34,7 +34,7 @@ import (
 
 const (
 	typeAvailableIdentity = "Available"
-	finalizerName         = "identity.aegis.aegisproxy.io"
+	identityFinalizerName = "identity.aegis.aegisproxy.io"
 )
 
 // IdentityReconciler reconciles a Identity object
@@ -88,8 +88,8 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 
-		if containsString(identity.ObjectMeta.Finalizers, finalizerName) {
-			identity.ObjectMeta.Finalizers = removeString(identity.ObjectMeta.Finalizers, finalizerName)
+		if containsString(identity.ObjectMeta.Finalizers, identityFinalizerName) {
+			identity.ObjectMeta.Finalizers = removeString(identity.ObjectMeta.Finalizers, identityFinalizerName)
 			if err := r.Update(ctx, identity); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -124,8 +124,8 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// appending finalizer
-	if !containsString(identity.ObjectMeta.Finalizers, finalizerName) {
-		identity.ObjectMeta.Finalizers = append(identity.ObjectMeta.Finalizers, finalizerName)
+	if !containsString(identity.ObjectMeta.Finalizers, identityFinalizerName) {
+		identity.ObjectMeta.Finalizers = append(identity.ObjectMeta.Finalizers, identityFinalizerName)
 		if err := r.Update(ctx, identity); err != nil {
 			log.Error(err, "Failed to update Identity with finalizer")
 			return ctrl.Result{}, err
@@ -147,6 +147,14 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	// add labels
+	identity.ObjectMeta.Labels = map[string]string{
+		"aegis.aegisproxy.io/identity.provider": identity.Spec.Provider,
+	}
+	if err := r.Update(ctx, identity); err != nil {
+		log.Error(err, "Failed to update Identity labels")
+		return ctrl.Result{}, err
+	}
 	identity.Status.Metadata = idmeta
 	if err := r.Status().Update(ctx, identity); err != nil {
 		log.Error(err, "Failed to update Identity status")
