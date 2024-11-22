@@ -215,7 +215,6 @@ func (r *IdentityReconciler) bindRoleToServiceAccount(ctx context.Context, servi
 		},
 	}
 	err = ensureResourceExistsWithControllerReference(ctx, r.Client, roleBinding, serviceAccount, r.Scheme)
-	//err = ensureResourceExists(ctx, r.Client, roleBinding)
 	if err != nil {
 		return err
 	}

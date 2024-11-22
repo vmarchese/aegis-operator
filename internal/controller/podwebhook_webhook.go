@@ -34,13 +34,14 @@ import (
 )
 
 const (
-	annotationEgressKey       = "aegisproxy.io/egress"
-	annotationIngressKey      = "aegisproxy.io/ingress"
-	annotationIngressPort     = "aegisproxy.io/ingress.port"
-	annotationType            = "aegisproxy.io/type"
-	annotationIdentity        = "aegisproxy.io/identity"
-	annotationIdentityAllowed = "aegisproxy.io/identity.allowed"
-	annotationValue           = "true"
+	annotationEgressKey        = "aegisproxy.io/egress"
+	annotationIngressKey       = "aegisproxy.io/ingress"
+	annotationIngressPort      = "aegisproxy.io/ingress.port"
+	annotationType             = "aegisproxy.io/type"
+	annotationIdentity         = "aegisproxy.io/identity"
+	annotationPolicy           = "aegisproxy.io/ingress.policy"
+	annotationIdentityProvider = "aegisproxy.io/identity.provider"
+	annotationValue            = "true"
 
 	ingressType       = "ingress"
 	egressType        = "egress"
@@ -49,6 +50,7 @@ const (
 	aegisProxyContainerName = "aegis-proxy"
 	aegisProxyImage         = "registry.localhost:5000/aegis-proxy:1.1"
 	aegisIpTablesImage      = "registry.localhost:5000/aegis-iptables:1.0"
+	aegisProxyIdentity      = "aegisproxy"
 
 	initContainerName = "aegis-init"
 
@@ -131,7 +133,7 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	mustInject := false
 	port := ""
 	identityOut := ""
-	identityIn := ""
+	identityProvider := ""
 
 	// Check for presence of annotations
 
@@ -140,16 +142,20 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		log.Info("egress annotation found", "name", pod.Name)
 		proxyType = egressType
 		iptablesScript = iptablesEgressScript
+
 		// if egress annotation is present, we need to check for identity annotation
 		if identityValue, ok := pod.Annotations[annotationIdentity]; ok && identityValue != "" {
 			identityOut = identityValue
 		} else {
 			return fmt.Errorf("identity is not set for egress proxy")
 		}
+
+		// if ingress  annotation is present, we need to check for identity provider annotation
 		mustInject = true
 	}
 
 	// Ingress
+	policy := ""
 	if value, ok := pod.Annotations[annotationIngressKey]; ok && value == annotationValue {
 		log.Info("ingress annotation found", "name", pod.Name)
 		if _port, ok := pod.Annotations[annotationIngressPort]; ok {
@@ -157,15 +163,18 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		} else {
 			return fmt.Errorf("ingress port is not set")
 		}
-		if identityValue, ok := pod.Annotations[annotationIdentityAllowed]; ok && identityValue != "" {
-			identityIn = identityValue
-		} else {
-			return fmt.Errorf("identity to check is not set for ingress proxy")
+		if policyValue, ok := pod.Annotations[annotationPolicy]; ok && policyValue != "" {
+			policy = policyValue
 		}
 		if proxyType == egressType {
 			proxyType = ingressEgressType
 		} else {
 			proxyType = ingressType
+			if identityProviderValue, ok := pod.Annotations[annotationIdentityProvider]; ok && identityProviderValue != "" {
+				identityProvider = identityProviderValue
+			} else {
+				return fmt.Errorf("identity provider is not set for egress proxy")
+			}
 		}
 		mustInject = true
 	}
@@ -173,7 +182,7 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		log.Info("no proxy type found, skipping", "name", pod.Name)
 		return nil // No mutation required
 	}
-	log.Info("injecting proxy", "name", pod.Name, "type", proxyType, "identityOut", identityOut, "identityIn", identityIn)
+	log.Info("injecting proxy", "name", pod.Name, "type", proxyType, "identityOut", identityOut, "policy", policy)
 
 	userIDs := fmt.Sprintf("%d", userID)
 	switch proxyType {
@@ -181,11 +190,15 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		iptablesScript = fmt.Sprintf(iptablesEgressScript, userIDs, outboundPort)
 	case ingressType:
 		iptablesScript = fmt.Sprintf(iptablesIngressScript, userIDs, inboundPort, port)
+		err := ensureAegisProxyServiceAccount(ctx, m.kubeClient, pod.Namespace) // ensure the service account aegisproxy exists
+		if err != nil {
+			return err
+		}
 	case ingressEgressType:
 		iptablesScript = fmt.Sprintf(iptablesIngressEgressScript, userIDs, inboundPort, outboundPort, port)
 	}
 
-	if err := m.injectProxy(ctx, pod, identityIn, identityOut, proxyType, iptablesScript); err != nil {
+	if err := m.injectProxy(ctx, pod, policy, identityOut, identityProvider, proxyType, iptablesScript); err != nil {
 		return err
 	}
 
@@ -193,7 +206,7 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 }
 
 // injectProxy injects the proxy and init containers based on the proxy type
-func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, identityIn, identityOut string, proxyType string, iptablesScript string) error {
+func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, policy, identityOut, identityProvider string, proxyType string, iptablesScript string) error {
 	log := podwebhooklog.WithValues("name", pod.Name)
 	userID := int64(userID)
 	proxyContainerName := aegisProxyContainerName
@@ -202,7 +215,7 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, identityI
 	// provider args
 	providerArgs := []string{}
 	// getting identities for provider
-	pargs, err := m.getProviderArgs(ctx, pod, proxyType, identityIn, identityOut)
+	pargs, err := m.getProviderArgs(ctx, pod, proxyType, identityOut, identityProvider)
 	if err != nil {
 		return err
 	}
@@ -222,8 +235,10 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, identityI
 			"--outport", outboundPort,
 			"--token", fmt.Sprintf("%s%c%s", tokenMountPath, os.PathSeparator, tokenFile),
 			"--identity", serviceAccount,
-			"--identity-allowed", identityIn,
 			"-vvvvv",
+		}
+		if policy != "" {
+			args = append(args, "--policy", policy)
 		}
 		args = append(args, providerArgs...)
 		log.Info("injecting aegis-proxy container", "name", pod.Name)
@@ -289,33 +304,41 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, identityI
 	return nil
 }
 
-func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxyType, identityIn, identityOut string) ([]string, error) {
+func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxyType, identityOut, identityProvider string) ([]string, error) {
 	log := podwebhooklog.WithValues("name", pod.Name)
 
 	// select identity based on proxy type
 	identity := ""
+	providerArgs := []string{}
 	switch proxyType {
 	case egressType:
 		identity = identityOut
 	case ingressType:
-		identity = identityIn
+		identity = aegisProxyIdentity
 	case ingressEgressType:
 		identity = identityOut
 	}
 
 	log.Info("getting provider args", "name", pod.Name, "identity", identity, "proxyType", proxyType, "pod", pod.Name)
 
-	providerArgs := []string{}
-	identityObj := v1.Identity{}
-	if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: identity}, &identityObj); err != nil {
-		return nil, fmt.Errorf("failed to get identity %s: %v", identity, err)
+	log.Info("HARDCODING HASHICORP VAULT PROVIDER FOR NOW")
+	providerType := "hashicorp.vault" // TODO: add other providers
+	providerName := ""
+	if identityProvider != "" {
+		providerName = identityProvider
+	} else {
+		identityObj := v1.Identity{}
+		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: identity}, &identityObj); err != nil {
+			return nil, fmt.Errorf("failed to get identity %s: %v", identity, err)
+		}
+		providerType = identityObj.Status.Provider
+		providerName = identityObj.Spec.Provider
 	}
-	providerType := identityObj.Status.Provider
 	switch providerType {
 	case "hashicorp.vault":
 		vault := v1.HashicorpVaultProvider{}
-		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: identityObj.Spec.Provider}, &vault); err != nil {
-			return nil, fmt.Errorf("failed to get hashicorp vault provider %s: %v", identityObj.Spec.Provider, err)
+		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: providerName}, &vault); err != nil {
+			return nil, fmt.Errorf("failed to get hashicorp vault provider %s: %v", providerName, err)
 		}
 		log.Info("vault provider", "name", pod.Name, "address", vault.Spec.VaultAddress)
 		providerArgs = append(providerArgs,
