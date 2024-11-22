@@ -150,8 +150,17 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "HashicorpVaultProvider")
 		os.Exit(1)
 	}
-	if err = (&aegisv1.PodWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+	if err = (&controller.PodWebhook{
+		Scheme: mgr.GetScheme(),
+	}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "PodWebhook")
+		os.Exit(1)
+	}
+	if err = (&controller.IngressPolicyReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "IngressPolicy")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

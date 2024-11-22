@@ -1,0 +1,9 @@
+apiVersion: aegis.aegisproxy.io/v1
+kind: IngressPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: ingresspolicy-sample
+spec:
+  # TODO(user): Add fields here

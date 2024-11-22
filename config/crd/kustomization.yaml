@@ -6,6 +6,7 @@ resources:
 - bases/aegis.aegisproxy.io_azureproviders.yaml
 - bases/aegis.aegisproxy.io_awsproviders.yaml
 - bases/aegis.aegisproxy.io_hashicorpvaultproviders.yaml
+- bases/aegis.aegisproxy.io_ingresspolicies.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:
@@ -21,6 +22,7 @@ patches:
 #- path: patches/cainjection_in_awsproviders.yaml
 #- path: patches/cainjection_in_hashicorpvaultproviders.yaml
 #- path: patches/cainjection_in_podwebhooks.yaml
+#- path: patches/cainjection_in_ingresspolicies.yaml
 #+kubebuilder:scaffold:crdkustomizecainjectionpatch
 
 # [WEBHOOK] To enable webhook, uncomment the following section
