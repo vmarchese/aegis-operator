@@ -4,4 +4,5 @@ resources:
 - aegis_v1_azureprovider.yaml
 - aegis_v1_awsprovider.yaml
 - aegis_v1_hashicorpvaultprovider.yaml
+- aegis_v1_ingresspolicy.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

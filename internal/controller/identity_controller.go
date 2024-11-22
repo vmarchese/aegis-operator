@@ -18,8 +18,10 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +38,7 @@ import (
 const (
 	typeAvailableIdentity = "Available"
 	identityFinalizerName = "identity.aegis.aegisproxy.io"
+	roleName              = "ingresspolicy-viewer-role"
 )
 
 // IdentityReconciler reconciles a Identity object
@@ -48,6 +51,8 @@ type IdentityReconciler struct {
 //+kubebuilder:rbac:groups=aegis.aegisproxy.io,resources=identities/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=aegis.aegisproxy.io,resources=identities/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;create;update;delete;list;watch;patch
+//+kubebuilder:rbac:groups="rbac.authorization.k8s.io",resources=roles,verbs=get;list;watch;create
+//+kubebuilder:rbac:groups="rbac.authorization.k8s.io",resources=rolebindings,verbs=get;list;watch;create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -160,30 +165,86 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// creating service account if not exists
-	serviceAccount := &corev1.ServiceAccount{}
-	err = r.Get(ctx, client.ObjectKey{Name: identity.Name, Namespace: identity.Namespace}, serviceAccount)
+	serviceAccount := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      identity.Name,
+			Namespace: identity.Namespace,
+		},
+	}
+	err = ensureResourceExistsWithControllerReference(ctx, r.Client, serviceAccount, identity, r.Scheme)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Error(err, "Failed to get service account")
-			serviceAccount = &corev1.ServiceAccount{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      identity.Name,
-					Namespace: identity.Namespace,
-				},
-			}
-			ctrl.SetControllerReference(identity, serviceAccount, r.Scheme)
-			if err := r.Create(ctx, serviceAccount); err != nil {
-				log.Error(err, "Failed to create service account")
-				return ctrl.Result{}, err
-			}
-		} else {
-			log.Error(err, "Failed to get service account")
-			return ctrl.Result{}, err
-		}
+		log.Error(err, "Failed to ensure service account exists")
+		return ctrl.Result{}, err
+	}
+
+	// creating role binding
+	err = r.bindRoleToServiceAccount(ctx, serviceAccount, roleName)
+	if err != nil {
+		log.Error(err, "Failed to bind role to service account")
+		return ctrl.Result{}, err
 	}
 
 	log.Info("Reconciled IdentitySpec", "spec", identity.Spec)
 	return ctrl.Result{}, nil
+}
+
+func (r *IdentityReconciler) bindRoleToServiceAccount(ctx context.Context, serviceAccount *corev1.ServiceAccount, roleName string) error {
+
+	err := r.createPolicyReaderRole(ctx, serviceAccount)
+	if err != nil {
+		return err
+	}
+
+	rolebindingName := fmt.Sprintf("%s-%s", serviceAccount.Name, roleName)
+	roleBinding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rolebindingName,
+			Namespace: serviceAccount.Namespace,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      serviceAccount.Name,
+				Namespace: serviceAccount.Namespace,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "Role",
+			Name:     roleName,
+		},
+	}
+	err = ensureResourceExistsWithControllerReference(ctx, r.Client, roleBinding, serviceAccount, r.Scheme)
+	//err = ensureResourceExists(ctx, r.Client, roleBinding)
+	if err != nil {
+		return err
+	}
+	return nil
+
+}
+
+func (r *IdentityReconciler) createPolicyReaderRole(ctx context.Context, serviceAccount *corev1.ServiceAccount) error {
+
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      roleName,
+			Namespace: serviceAccount.Namespace,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"aegis.aegisproxy.io"},
+				Resources: []string{"ingresspolicies"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+		},
+	}
+	err := ensureResourceExistsWithControllerReference(ctx, r.Client, role, serviceAccount, r.Scheme)
+	if err != nil {
+		return err
+	}
+
+	return nil
+
 }
 
 func (r *IdentityReconciler) findProvider(ctx context.Context, req ctrl.Request, providerName string) (IdentityHelper, error) {

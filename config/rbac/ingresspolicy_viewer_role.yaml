@@ -1,0 +1,23 @@
+# permissions for end users to view ingresspolicies.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: ingresspolicy-viewer-role
+rules:
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - ingresspolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - ingresspolicies/status
+  verbs:
+  - get

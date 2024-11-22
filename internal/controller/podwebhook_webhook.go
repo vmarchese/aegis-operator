@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1
+package controller
 
 import (
 	"context"
@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 
+	v1 "github.com/vmarchese/aegis-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -72,6 +73,8 @@ var iptablesIngressEgressScript string
 type PodWebhook struct {
 	decoder    *admission.Decoder
 	kubeClient client.Client
+
+	Scheme *runtime.Scheme
 }
 
 var _ admission.CustomDefaulter = &PodWebhook{}
@@ -280,6 +283,8 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, identityI
 			},
 		}
 		pod.Spec.InitContainers = append(pod.Spec.InitContainers, initContainer)
+		pod.Spec.ServiceAccountName = serviceAccount
+
 	}
 	return nil
 }
@@ -301,14 +306,14 @@ func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxy
 	log.Info("getting provider args", "name", pod.Name, "identity", identity, "proxyType", proxyType, "pod", pod.Name)
 
 	providerArgs := []string{}
-	identityObj := Identity{}
+	identityObj := v1.Identity{}
 	if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: identity}, &identityObj); err != nil {
 		return nil, fmt.Errorf("failed to get identity %s: %v", identity, err)
 	}
 	providerType := identityObj.Status.Provider
 	switch providerType {
 	case "hashicorp.vault":
-		vault := HashicorpVaultProvider{}
+		vault := v1.HashicorpVaultProvider{}
 		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: identityObj.Spec.Provider}, &vault); err != nil {
 			return nil, fmt.Errorf("failed to get hashicorp vault provider %s: %v", identityObj.Spec.Provider, err)
 		}

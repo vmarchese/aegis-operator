@@ -120,3 +120,47 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - ingresspolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - ingresspolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - ingresspolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - roles
+  verbs:
+  - create
+  - get
+  - list
+  - watch
