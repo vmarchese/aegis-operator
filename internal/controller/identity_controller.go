@@ -177,8 +177,14 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	// creating role binding
-	err = r.bindRoleToServiceAccount(ctx, serviceAccount, roleName)
+	// creating role binding for default service account
+	err = r.bindRoleToServiceAccount(ctx, identity.Namespace, "default", roleName, false)
+	if err != nil {
+		log.Error(err, "Failed to bind default role to service account")
+		return ctrl.Result{}, err
+	}
+	// creating role binding for identity service account
+	err = r.bindRoleToServiceAccount(ctx, serviceAccount.Namespace, serviceAccount.Name, roleName, true)
 	if err != nil {
 		log.Error(err, "Failed to bind role to service account")
 		return ctrl.Result{}, err
@@ -188,9 +194,15 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
-func (r *IdentityReconciler) bindRoleToServiceAccount(ctx context.Context, serviceAccount *corev1.ServiceAccount, roleName string) error {
+func (r *IdentityReconciler) bindRoleToServiceAccount(ctx context.Context, namespace, serviceAccountName string, roleName string, withOwnership bool) error {
 
-	err := r.createPolicyReaderRole(ctx, serviceAccount)
+	serviceAccount := &corev1.ServiceAccount{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: serviceAccountName}, serviceAccount)
+	if err != nil {
+		return err
+	}
+
+	err = r.createPolicyReaderRole(ctx, serviceAccount)
 	if err != nil {
 		return err
 	}
@@ -214,7 +226,12 @@ func (r *IdentityReconciler) bindRoleToServiceAccount(ctx context.Context, servi
 			Name:     roleName,
 		},
 	}
-	err = ensureResourceExistsWithControllerReference(ctx, r.Client, roleBinding, serviceAccount, r.Scheme)
+	if withOwnership {
+		err = ensureResourceExistsWithControllerReference(ctx, r.Client, roleBinding, serviceAccount, r.Scheme)
+	} else {
+		err = ensureResourceExists(ctx, r.Client, roleBinding)
+	}
+
 	if err != nil {
 		return err
 	}
