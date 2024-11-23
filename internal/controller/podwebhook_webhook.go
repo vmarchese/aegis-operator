@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	v1 "github.com/vmarchese/aegis-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -62,6 +63,8 @@ const (
 	tokenFile         = "token"
 	expirationSeconds = 7200
 )
+
+var envPrefixesToCopy = []string{"OTEL", "AEGIS"}
 
 //go:embed iptables-egress.sh
 var iptablesEgressScript string
@@ -260,6 +263,16 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, policy, i
 					MountPath: tokenMountPath,
 				},
 			},
+		}
+		// adding env variables
+		for _, prefix := range envPrefixesToCopy {
+			for _, container := range pod.Spec.Containers {
+				for _, env := range container.Env {
+					if strings.HasPrefix(env.Name, prefix) {
+						aegisProxyContainer.Env = append(aegisProxyContainer.Env, env)
+					}
+				}
+			}
 		}
 		pod.Spec.Containers = append(pod.Spec.Containers, aegisProxyContainer)
 		pod.Spec.ServiceAccountName = serviceAccount
