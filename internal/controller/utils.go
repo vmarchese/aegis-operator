@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -73,4 +75,34 @@ func ensureResourceExistsWithControllerReference(ctx context.Context, c client.C
 
 	log.Info("Successfully created resource", "resource", obj.GetName())
 	return nil
+}
+
+func ensureAegisProxyServiceAccount(ctx context.Context, c client.Client, namespace string) error {
+	log := log.FromContext(ctx)
+	serviceAccount := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      aegisProxyIdentity,
+			Namespace: namespace,
+		},
+	}
+	err := c.Get(ctx, client.ObjectKeyFromObject(serviceAccount), serviceAccount)
+	if err == nil {
+		return nil
+	}
+	if err := client.IgnoreNotFound(err); err != nil {
+		// An unexpected error occurred, return it
+		log.Error(err, "Failed to check for existing resource")
+		return err
+	}
+
+	// Object does not exist, attempt to create it
+	err = c.Create(ctx, serviceAccount)
+	if err != nil {
+		log.Error(err, "Failed to create resource", "resource", serviceAccount.GetName())
+		return err
+	}
+
+	log.Info("Successfully created resource", "resource", serviceAccount.GetName())
+	return nil
+
 }
