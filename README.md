@@ -1,120 +1,47 @@
-# AEGIS operator
-The AEGIS operator will be able to:
-- create identities on Azure Entra ID, AWS IAM, Hashicorp Vault
-- inject an egress proxy into a pod to intercept the traffic and inject authentication tokens
-- inject an ingress proxy into a pod to check the authentication token
+# AEGIS
 
-## Setup
-- [Hashicorp Vault](./docs/hashicorpvault.md)
+## Concepts
+This solution builds upon the idea of a Service Mesh similar to Istio but with a key difference: instead of securing traffic with mTLS, it relies on JWT tokens issued by external Identity Providers (IdPs) such as HashiCorp Vault, Azure AD, AWS IAM, or GCP. The identities and their associated providers are defined as Custom Resource Definitions (CRDs) in Kubernetes, creating a fully Kubernetes-native approach to identity and access management within the mesh.
+
+![arch](./docs/images/arch.png)
+
+## 1. Problem Statement
+In this JWT-based Service Mesh:
+
+- Ingress control and Egress token acquisition are handled by a proxy injected into each pod by a mutating webhook.
+- The assumption of identities is managed through the federation of Kubernetes ServiceAccounts with the configured IdPs.
+- Access control is enforced through CRDs, specifically `IngressPolicy`, which governs the RBAC rules applied by the proxy.
+
+This project implements a mechanism to:
+
+- Securely associate each pod with its identity, defined by its ServiceAccount and federated with an IdP.
+- Dynamically manage IngressPolicy resources, ensuring that the proxy in each pod enforces the correct policies without overstepping namespace or cluster boundaries.
+
+## 2. Solution Overview
+The solution provides a Kubernetes-native approach to managing and enforcing these policies and identities:
+
+### CRD Definitions:
+- IdentityProvider CRDs define external IdPs (e.g., Vault, Azure AD, AWS IAM) and their configurations for token issuance.
+- Identity CRDs define the identity to be assumed by the pod
+- IngressPolicy CRDs define the allowed identities, methods, and paths for ingress traffic, associated with each pod's proxy.
+
+### Dynamic Proxy Injection:
+- A mutating webhook injects the sidecar proxy into pods with specific annotations, enabling ingress and egress traffic control.
+
+### RBAC Enforcement:
+- The proxy fetches and enforces the IngressPolicy CRDs specific to the pod using the ServiceAccount identity federated with the IdP.
+- Permissions for accessing these policies are managed via Kubernetes RBAC, ensuring strict namespace or cluster-wide isolation.
+
+### Identity Federation:
+- ServiceAccounts are federated with external IdPs to allow secure token acquisition.
+- The proxy handles token issuance for outgoing requests (egress) and validation for incoming requests (ingress).
+
+### Annotations-Driven Configuration:
+- Pod annotations define the configuration for enabling the proxy, selecting the appropriate IdP, and linking to the correct IngressPolicy.
 
 
+## Tutorials
 
-
-## Getting Started
-
-### Prerequisites
-- go version v1.21.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
-
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
-
-```sh
-make docker-build docker-push IMG=<some-registry>/operator:tag
-```
-
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
-
-**Install the CRDs into the cluster:**
-
-```sh
-make install
-```
-
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
-
-```sh
-make deploy IMG=<some-registry>/operator:tag
-```
-
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
-
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
-kubectl apply -k config/samples/
-```
-
->**NOTE**: Ensure that the samples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
-```
-
-**Delete the APIs(CRDs) from the cluster:**
-
-```sh
-make uninstall
-```
-
-**UnDeploy the controller from the cluster:**
-
-```sh
-make undeploy
-```
-
-## Project Distribution
-
-Following are the steps to build the installer and distribute this project to users.
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/operator:tag
-```
-
-NOTE: The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without
-its dependencies.
-
-2. Using the installer
-
-Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/operator/<tag or branch>/dist/install.yaml
-```
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
-
-## License
-
-Copyright 2024.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
+- Hashicorp Vault 
+  - [Setup](./docs/hashicorpvault.md)
+  - [Example](./docs/hashicorpvault-example.md)
