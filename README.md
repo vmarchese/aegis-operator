@@ -26,7 +26,7 @@ The solution provides a Kubernetes-native approach to managing and enforcing the
 - IngressPolicy CRDs define the allowed identities, methods, and paths for ingress traffic, associated with each pod's proxy.
 
 ### Dynamic Proxy Injection:
-- A mutating webhook injects the sidecar proxy into pods with specific annotations, enabling ingress and egress traffic control.
+- A mutating webhook injects the project's companion sidecar [Aegis proxy](https://github.com/vmarchese/aegis-proxy) into pods with specific annotations, enabling ingress and egress traffic control.
 
 ### RBAC Enforcement:
 - The proxy fetches and enforces the IngressPolicy CRDs specific to the pod using the ServiceAccount identity federated with the IdP.
