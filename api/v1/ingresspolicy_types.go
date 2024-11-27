@@ -23,17 +23,18 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-type Path struct {
-	Prefix            string   `json:"prefix,omitempty"`
-	AllowedMethods    []string `json:"allowedMethods,omitempty"`
-	AllowedIdentities []string `json:"allowedIdentities,omitempty"`
+type Rule struct {
+	Name       string   `json:"name,omitempty"`
+	Paths      []string `json:"paths,omitempty"`
+	Methods    []string `json:"methods,omitempty"`
+	Identities []string `json:"identities,omitempty"`
 }
 
 // IngressPolicySpec defines the desired state of IngressPolicy
 type IngressPolicySpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	Paths []Path `json:"paths,omitempty"`
+	Rules []Rule `json:"rules,omitempty"`
 }
 
 // IngressPolicyStatus defines the observed state of IngressPolicy
