@@ -86,8 +86,8 @@ identity02                    0         42m
 
 Now, let's say that we want to protect the application containers as follows:
 
--  container `chain02` can be only called with a `GET` by `identity01` 
--  container `chain03` can be only called with a `POST` by `identity02` 
+-  container `chain02` can be only called with a `GET` or a `POST` by `identity01` 
+-  container `chain03` can be only called with a `GET` by `identity02` 
 
 Let's define the following `IngressPolicies`:
 
@@ -97,10 +97,12 @@ kind: IngressPolicy
 metadata:
   name: policy01
 spec:
-  paths:
-    - prefix: /
-      allowedMethods: ["GET"]
-      allowedIdentities: 
+  rules:
+    - name: allow_get_id1
+      methods: ["GET","POST"]
+      paths:
+      - /
+      identities:
         - system:serviceaccount:operator-system:identity01
 ---
 apiVersion: aegis.aegisproxy.io/v1
@@ -108,10 +110,12 @@ kind: IngressPolicy
 metadata:
   name: policy02
 spec:
-  paths:
-    - prefix: /
-      allowedMethods: ["POST"]
-      allowedIdentities: 
+  rules:
+    - name: allow_get_id2
+      methods: ["GET"]
+      paths:
+      - /
+      identities:
         - system:serviceaccount:operator-system:identity02
 ```
 
