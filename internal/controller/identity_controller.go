@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	aegisv1 "github.com/vmarchese/aegis-operator/api/v1"
+	"github.com/vmarchese/aegis-operator/internal/identity/azure"
 	"github.com/vmarchese/aegis-operator/internal/identity/hashicorpvault"
 )
 
@@ -264,12 +265,28 @@ func (r *IdentityReconciler) createPolicyReaderRole(ctx context.Context, service
 }
 
 func (r *IdentityReconciler) findProvider(ctx context.Context, req ctrl.Request, providerName string) (IdentityHelper, error) {
+	log := log.FromContext(ctx)
 
+	// try hashicorp vault provider first
 	provider := &aegisv1.HashicorpVaultProvider{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: providerName}, provider)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("HashicorpVaultProvider not found, trying AzureProvider")
+			azprovider := &aegisv1.AzureProvider{}
+			err = r.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: providerName}, azprovider)
+			if err == nil {
+				log.Info("AzureProvider found", "tenantID", azprovider.Spec.TenantID, "clientID", azprovider.Spec.ClientID)
+				return azure.New(azprovider.Spec.TenantID, azprovider.Spec.ClientID), nil
+			} else {
+				log.Error(err, "Failed to find AzureProvider")
+				return nil, err
+			}
+		}
+		log.Error(err, "Failed to find provider")
 		return nil, err
 	}
+	log.Info("HashicorpVaultProvider found", "vaultAddress", provider.Spec.VaultAddress)
 	return hashicorpvault.New(provider.Spec.VaultAddress), nil
 
 }

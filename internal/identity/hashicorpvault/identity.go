@@ -28,7 +28,7 @@ const (
 
 	AegisOperatorRole = "aegis"
 
-	K8STokenPath = "/var/run/secrets/tokens/token"
+	K8STokenPath = "/var/run/secrets/tokens/hashicorpvault_token"
 )
 
 //go:embed tokenTemplate.tpl

@@ -19,12 +19,22 @@ package controller
 import (
 	"context"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	aegisv1 "github.com/vmarchese/aegis-operator/api/v1"
+)
+
+const (
+	azureProviderFinalizerName = "idprovider.aegis.aegisproxy.io"
+	typeAvailableAzureProvider = "Available"
 )
 
 // AzureProviderReconciler reconciles a AzureProvider object
@@ -47,9 +57,105 @@ type AzureProviderReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.17.3/pkg/reconcile
 func (r *AzureProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	log := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// Log the request details
+	log.Info("Reconciling AzureProvider", "name", req.Name, "namespace", req.Namespace)
+	// Fetch the Identity object
+	entraID := &aegisv1.AzureProvider{}
+	err := r.Get(ctx, req.NamespacedName, entraID)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("AzureProvider resource not found. Ignoring since object must be deleted")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "unable to fetch AzureProvider")
+		return ctrl.Result{}, err
+	}
+
+	if !entraID.ObjectMeta.DeletionTimestamp.IsZero() {
+		log.Info("AzureProvider is being deleted")
+		// delete all identities
+		// List all identities with matching provider label
+		identityList := &aegisv1.IdentityList{}
+		if err := r.List(ctx, identityList, client.MatchingLabels{
+			"aegis.aegisproxy.io/identity.provider": entraID.Name,
+		}); err != nil {
+			log.Error(err, "Failed to list identities")
+			return ctrl.Result{}, err
+		}
+
+		// Delete each identity
+		for _, identity := range identityList.Items {
+			log.Info("Deleting identity", "identity", identity.Name)
+			if err := r.Delete(ctx, &identity); err != nil {
+				log.Error(err, "Failed to delete identity", "identity", identity.Name)
+				return ctrl.Result{}, err
+			}
+		}
+		// check for deletion
+		for _, identity := range identityList.Items {
+			idObj := &aegisv1.Identity{}
+			if err := r.Get(ctx, types.NamespacedName{Name: identity.Name, Namespace: identity.Namespace}, idObj); err == nil {
+				log.Error(err, "identity not deleted", "identity", identity.Name)
+				return ctrl.Result{Requeue: true}, nil
+			}
+		}
+
+		// now delete the vault provider finalizer
+		if controllerutil.ContainsFinalizer(entraID, azureProviderFinalizerName) {
+			log.Info("Deleting AzureProvider finalizer")
+			updated := controllerutil.RemoveFinalizer(entraID, azureProviderFinalizerName)
+			if !updated {
+				return ctrl.Result{}, err
+			}
+			if err := r.Update(ctx, entraID); err != nil {
+				log.Error(err, "Failed to update AzureProvider to remove finalizer")
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	if len(entraID.Status.Conditions) == 0 {
+		meta.SetStatusCondition(&entraID.Status.Conditions,
+			metav1.Condition{Type: typeAvailableAzureProvider,
+				Status:  metav1.ConditionUnknown,
+				Reason:  "Reconciling",
+				Message: "Starting reconciliation"})
+		if err = r.Status().Update(ctx, entraID); err != nil {
+			log.Error(err, "Failed to update AzureProvider status to Reconciling")
+			return ctrl.Result{}, err
+		}
+
+		if err := r.Get(ctx, req.NamespacedName, entraID); err != nil {
+			log.Error(err, "Failed to re-fetch AzureProvider")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// appending finalizer
+	if !controllerutil.ContainsFinalizer(entraID, azureProviderFinalizerName) {
+		updated := controllerutil.AddFinalizer(entraID, azureProviderFinalizerName)
+		if !updated {
+			log.Error(err, "Failed to update AzureProvider with finalizer")
+			return ctrl.Result{}, err
+		}
+		if err := r.Update(ctx, entraID); err != nil {
+			log.Error(err, "Failed to update AzureProvider to add finalizer")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+	meta.SetStatusCondition(&entraID.Status.Conditions,
+		metav1.Condition{Type: typeAvailableAzureProvider,
+			Status:  metav1.ConditionTrue,
+			Reason:  "Reconciled",
+			Message: "AzureProvider reconciled"})
+	if err := r.Status().Update(ctx, entraID); err != nil {
+		log.Error(err, "Failed to update AzureProvider status to Reconciled")
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }

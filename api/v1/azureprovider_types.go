@@ -30,12 +30,14 @@ type AzureProviderSpec struct {
 
 	Name     string `json:"name,omitempty"`
 	TenantID string `json:"tenantID,omitempty"`
+	ClientID string `json:"clientID,omitempty"`
 }
 
 // AzureProviderStatus defines the observed state of AzureProvider
 type AzureProviderStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
