@@ -24,6 +24,7 @@ import (
 	"os"
 	"strings"
 
+	aegisv1 "github.com/vmarchese/aegis-operator/api/v1"
 	v1 "github.com/vmarchese/aegis-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -109,6 +110,7 @@ func (m *PodWebhook) SetupWebhookWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=mpodwebhook.kb.io,admissionReviewVersions=v1
 //+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=identities,verbs=get;list;watch
 //+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=hashicorpvaultproviders,verbs=get;list;watch
+//+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=azureproviders,verbs=get;list;watch
 
 func (m *PodWebhook) Handle(ctx context.Context, req admission.Request) admission.Response {
 	fmt.Println("Handle")
@@ -210,15 +212,30 @@ func (m *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 
 // injectProxy injects the proxy and init containers based on the proxy type
 func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, policy, identityOut, identityProvider string, proxyType string, iptablesScript string) error {
+	var err error
 	log := podwebhooklog.WithValues("name", pod.Name)
 	userID := int64(userID)
 	proxyContainerName := aegisProxyContainerName
 	serviceAccount := identityOut
 
+	providerType := ""
+	if proxyType == ingressType {
+		providerType, err = m.findProviderTypeByName(ctx, identityProvider, pod.Namespace)
+		if err != nil {
+			return err
+		}
+	} else {
+		identityObj := aegisv1.Identity{}
+		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: identityOut}, &identityObj); err != nil {
+			return fmt.Errorf("failed to get identity %s: %v", identityOut, err)
+		}
+		providerType = identityObj.Status.Provider
+	}
+
 	// provider args
 	providerArgs := []string{}
 	// getting identities for provider
-	pargs, err := m.getProviderArgs(ctx, pod, proxyType, identityOut, identityProvider)
+	pargs, err := m.getProviderArgs(ctx, pod, proxyType, identityOut, identityProvider, providerType)
 	if err != nil {
 		return err
 	}
@@ -238,6 +255,7 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, policy, i
 			"--outport", outboundPort,
 			"--token", fmt.Sprintf("%s%c%s", tokenMountPath, os.PathSeparator, tokenFile),
 			"--identity", serviceAccount,
+			"--identity-provider", providerType,
 			"-vvvvv",
 		}
 		if policy != "" {
@@ -282,6 +300,14 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, policy, i
 	if !hasContainer(pod, initContainerName) {
 		exp := int64(expirationSeconds)
 
+		audience := ""
+		switch providerType {
+		case "hashicorp.vault":
+			audience = "vault"
+		case "azure":
+			audience = "api://AzureADTokenExchange"
+		}
+
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "satoken",
 			VolumeSource: corev1.VolumeSource{
@@ -289,7 +315,7 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, policy, i
 					Sources: []corev1.VolumeProjection{
 						{ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
 							Path:              "token",
-							Audience:          "vault", //TODO: depends on the identity
+							Audience:          audience, //TODO: depends on the identity
 							ExpirationSeconds: &exp,
 						}}},
 				},
@@ -317,7 +343,7 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, policy, i
 	return nil
 }
 
-func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxyType, identityOut, identityProvider string) ([]string, error) {
+func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxyType, identityOut, identityProvider, providerType string) ([]string, error) {
 	log := podwebhooklog.WithValues("name", pod.Name)
 
 	// select identity based on proxy type
@@ -332,21 +358,20 @@ func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxy
 		identity = identityOut
 	}
 
-	log.Info("getting provider args", "name", pod.Name, "identity", identity, "proxyType", proxyType, "pod", pod.Name)
+	log.Info("getting provider args", "name", pod.Name, "identity", identity, "proxyType", proxyType, "pod", pod.Name, "provider", identityProvider)
 
-	log.Info("HARDCODING HASHICORP VAULT PROVIDER FOR NOW")
-	providerType := "hashicorp.vault" // TODO: add other providers
 	providerName := ""
-	if identityProvider != "" {
+	if identityProvider != "" { // this is the case of a simple ingress proxy with no identity associated, we must find the provider by name
 		providerName = identityProvider
+
 	} else {
 		identityObj := v1.Identity{}
 		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: identity}, &identityObj); err != nil {
 			return nil, fmt.Errorf("failed to get identity %s: %v", identity, err)
 		}
-		providerType = identityObj.Status.Provider
 		providerName = identityObj.Spec.Provider
 	}
+
 	switch providerType {
 	case "hashicorp.vault":
 		vault := v1.HashicorpVaultProvider{}
@@ -357,10 +382,53 @@ func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxy
 		providerArgs = append(providerArgs,
 			"--identity-provider", "hashicorp.vault",
 			"--vault-address", vault.Spec.VaultAddress)
+	case "azure":
+		azure := v1.AzureProvider{}
+		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: providerName}, &azure); err != nil {
+			return nil, fmt.Errorf("failed to get azure provider %s: %v", providerName, err)
+		}
+		log.Info("azure provider", "name", pod.Name, "tenantID", azure.Spec.TenantID, "clientID", azure.Spec.ClientID)
+
+		providerArgs = append(providerArgs,
+			"--azure-tenant-id", azure.Spec.TenantID,
+		)
+		if proxyType == egressType || proxyType == ingressEgressType {
+			// get identity
+			identityObj := aegisv1.Identity{}
+			if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: identity}, &identityObj); err != nil {
+				return nil, fmt.Errorf("failed to get identity %s: %v", identity, err)
+			}
+
+			clientId := identityObj.Status.Metadata["aegis.identity.id"]
+			if clientId == "" {
+				return nil, fmt.Errorf("client id is not set for identity %s", identity)
+			}
+
+			providerArgs = append(providerArgs,
+				"--azure-client-id", clientId,
+			)
+		}
+	default:
+		return nil, fmt.Errorf("unknown provider type %s", providerType)
 	}
-	log.Info("provider type", "name", pod.Name, "type", providerType)
+	log.Info("provider type", "name", pod.Name, "type", providerType, "args", providerArgs)
 
 	return providerArgs, nil
+}
+
+func (m *PodWebhook) findProviderTypeByName(ctx context.Context, providerName, namespace string) (string, error) {
+
+	// try hashicorp vault provider first
+	var hProvider aegisv1.HashicorpVaultProvider
+	if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: providerName}, &hProvider); err != nil {
+		var aProvider aegisv1.AzureProvider
+		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: providerName}, &aProvider); err != nil {
+			return "", err
+		}
+		return "azure", nil
+	}
+	return "hashicorp.vault", nil
+
 }
 
 func hasContainer(pod *corev1.Pod, containerName string) bool {
