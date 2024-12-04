@@ -45,3 +45,6 @@ The solution provides a Kubernetes-native approach to managing and enforcing the
 - Hashicorp Vault 
   - [Setup](./docs/hashicorpvault.md)
   - [Example](./docs/hashicorpvault-example.md)
+- Azure Entra ID 
+  - [Setup](./docs/azure.md)
+  - [Example](./docs/azure-example.md)

@@ -100,7 +100,11 @@ spec:
         projected:
           sources:
           - serviceAccountToken:
-              path: token
+              path: azure_token
+              audience: api://AzureADTokenExchange
+              expirationSeconds: 86400
+          - serviceAccountToken:
+              path: hashicorpvault_token
               audience: vault
               expirationSeconds: 86400
       serviceAccountName: controller-manager
