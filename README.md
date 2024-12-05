@@ -48,3 +48,5 @@ The solution provides a Kubernetes-native approach to managing and enforcing the
 - Azure Entra ID 
   - [Setup](./docs/azure.md)
   - [Example](./docs/azure-example.md)
+- Kubernetes 
+  - [Example](./docs/kubernetes-example.md)

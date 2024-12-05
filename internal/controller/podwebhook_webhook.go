@@ -25,7 +25,6 @@ import (
 	"strings"
 
 	aegisv1 "github.com/vmarchese/aegis-operator/api/v1"
-	v1 "github.com/vmarchese/aegis-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -111,6 +110,7 @@ func (m *PodWebhook) SetupWebhookWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=identities,verbs=get;list;watch
 //+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=hashicorpvaultproviders,verbs=get;list;watch
 //+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=azureproviders,verbs=get;list;watch
+//+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=kubernetesproviders,verbs=get;list;watch
 
 func (m *PodWebhook) Handle(ctx context.Context, req admission.Request) admission.Response {
 	fmt.Println("Handle")
@@ -306,6 +306,8 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, policy, i
 			audience = "vault"
 		case "azure":
 			audience = "api://AzureADTokenExchange"
+		case "kubernetes":
+			audience = "kubernetes"
 		}
 
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
@@ -365,7 +367,7 @@ func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxy
 		providerName = identityProvider
 
 	} else {
-		identityObj := v1.Identity{}
+		identityObj := aegisv1.Identity{}
 		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: identity}, &identityObj); err != nil {
 			return nil, fmt.Errorf("failed to get identity %s: %v", identity, err)
 		}
@@ -374,7 +376,7 @@ func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxy
 
 	switch providerType {
 	case "hashicorp.vault":
-		vault := v1.HashicorpVaultProvider{}
+		vault := aegisv1.HashicorpVaultProvider{}
 		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: providerName}, &vault); err != nil {
 			return nil, fmt.Errorf("failed to get hashicorp vault provider %s: %v", providerName, err)
 		}
@@ -382,8 +384,17 @@ func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxy
 		providerArgs = append(providerArgs,
 			"--identity-provider", "hashicorp.vault",
 			"--vault-address", vault.Spec.VaultAddress)
+	case "kubernetes":
+		kube := aegisv1.KubernetesProvider{}
+		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: providerName}, &kube); err != nil {
+			return nil, fmt.Errorf("failed to get kubernetes provider %s: %v", providerName, err)
+		}
+		providerArgs = append(providerArgs,
+			"--identity-provider", "kubernetes",
+			"--kubernetes-issuer", kube.Status.Issuer,
+		)
 	case "azure":
-		azure := v1.AzureProvider{}
+		azure := aegisv1.AzureProvider{}
 		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: providerName}, &azure); err != nil {
 			return nil, fmt.Errorf("failed to get azure provider %s: %v", providerName, err)
 		}
@@ -423,7 +434,11 @@ func (m *PodWebhook) findProviderTypeByName(ctx context.Context, providerName, n
 	if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: providerName}, &hProvider); err != nil {
 		var aProvider aegisv1.AzureProvider
 		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: providerName}, &aProvider); err != nil {
-			return "", err
+			var kProvider aegisv1.KubernetesProvider
+			if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: providerName}, &kProvider); err != nil {
+				return "", err
+			}
+			return "kubernetes", nil
 		}
 		return "azure", nil
 	}

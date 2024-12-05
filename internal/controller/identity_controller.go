@@ -34,6 +34,7 @@ import (
 	aegisv1 "github.com/vmarchese/aegis-operator/api/v1"
 	"github.com/vmarchese/aegis-operator/internal/identity/azure"
 	"github.com/vmarchese/aegis-operator/internal/identity/hashicorpvault"
+	"github.com/vmarchese/aegis-operator/internal/identity/kubernetes"
 )
 
 const (
@@ -279,6 +280,15 @@ func (r *IdentityReconciler) findProvider(ctx context.Context, req ctrl.Request,
 				log.Info("AzureProvider found", "tenantID", azprovider.Spec.TenantID, "clientID", azprovider.Spec.ClientID)
 				return azure.New(azprovider.Spec.TenantID, azprovider.Spec.ClientID), nil
 			} else {
+				if apierrors.IsNotFound(err) {
+					log.Info("AzureProvider not found, trying KubernetesProvider")
+					kubeProvider := &aegisv1.KubernetesProvider{}
+					err = r.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: providerName}, kubeProvider)
+					if err == nil {
+						log.Info("KubernetesProvider found")
+						return kubernetes.New(), nil
+					}
+				}
 				log.Error(err, "Failed to find AzureProvider")
 				return nil, err
 			}

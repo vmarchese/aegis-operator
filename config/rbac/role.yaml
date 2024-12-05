@@ -147,6 +147,32 @@ rules:
   - patch
   - update
 - apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - kubernetesproviders
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - kubernetesproviders/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aegis.aegisproxy.io
+  resources:
+  - kubernetesproviders/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - rbac.authorization.k8s.io
   resources:
   - rolebindings
