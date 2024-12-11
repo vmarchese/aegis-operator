@@ -107,5 +107,9 @@ spec:
               path: hashicorpvault_token
               audience: vault
               expirationSeconds: 86400
+          - serviceAccountToken:
+              path: aws_token
+              audience: sts.amazonaws.com
+              expirationSeconds: 86400
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

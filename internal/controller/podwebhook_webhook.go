@@ -111,6 +111,7 @@ func (m *PodWebhook) SetupWebhookWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=hashicorpvaultproviders,verbs=get;list;watch
 //+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=azureproviders,verbs=get;list;watch
 //+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=kubernetesproviders,verbs=get;list;watch
+//+kubebuilder:rbac:groups="aegis.aegisproxy.io",resources=awsproviders,verbs=get;list;watch
 
 func (m *PodWebhook) Handle(ctx context.Context, req admission.Request) admission.Response {
 	fmt.Println("Handle")
@@ -308,6 +309,8 @@ func (m *PodWebhook) injectProxy(ctx context.Context, pod *corev1.Pod, policy, i
 			audience = "api://AzureADTokenExchange"
 		case "kubernetes":
 			audience = "kubernetes"
+		case "aws":
+			audience = "sts.amazonaws.com"
 		}
 
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
@@ -393,6 +396,28 @@ func (m *PodWebhook) getProviderArgs(ctx context.Context, pod *corev1.Pod, proxy
 			"--identity-provider", "kubernetes",
 			"--kubernetes-issuer", kube.Status.Issuer,
 		)
+	case "aws":
+		aws := aegisv1.AWSProvider{}
+		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: providerName}, &aws); err != nil {
+			return nil, fmt.Errorf("failed to get aws provider %s: %v", providerName, err)
+		}
+		providerArgs = append(providerArgs,
+			"--aws-region", aws.Spec.Region,
+		)
+		if proxyType == egressType || proxyType == ingressEgressType {
+			identityObj := aegisv1.Identity{}
+			if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: identity}, &identityObj); err != nil {
+				return nil, fmt.Errorf("failed to get identity %s: %v", identity, err)
+			}
+
+			identityId := identityObj.Status.Metadata["aegis.identity.id"]
+			if identityId == "" {
+				return nil, fmt.Errorf("identity id is not set for identity %s", identity)
+			}
+			providerArgs = append(providerArgs,
+				"--aws-identity-id", identityId,
+			)
+		}
 	case "azure":
 		azure := aegisv1.AzureProvider{}
 		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: providerName}, &azure); err != nil {
@@ -436,7 +461,11 @@ func (m *PodWebhook) findProviderTypeByName(ctx context.Context, providerName, n
 		if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: providerName}, &aProvider); err != nil {
 			var kProvider aegisv1.KubernetesProvider
 			if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: providerName}, &kProvider); err != nil {
-				return "", err
+				var aProvider aegisv1.AWSProvider
+				if err := m.kubeClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: providerName}, &aProvider); err != nil {
+					return "", err
+				}
+				return "aws", nil
 			}
 			return "kubernetes", nil
 		}

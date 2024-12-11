@@ -27,13 +27,17 @@ import (
 type AWSProviderSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-
+	Name           string `json:"name,omitempty"`
+	Region         string `json:"region,omitempty"`
+	IdentityPoolID string `json:"identityPoolID,omitempty"`
+	RoleARN        string `json:"roleARN,omitempty"`
 }
 
 // AWSProviderStatus defines the observed state of AWSProvider
 type AWSProviderStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true

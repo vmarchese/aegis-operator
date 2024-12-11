@@ -26,15 +26,18 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	aegisv1 "github.com/vmarchese/aegis-operator/api/v1"
+	"github.com/vmarchese/aegis-operator/internal/identity/aws"
 	"github.com/vmarchese/aegis-operator/internal/identity/azure"
 	"github.com/vmarchese/aegis-operator/internal/identity/hashicorpvault"
-	"github.com/vmarchese/aegis-operator/internal/identity/kubernetes"
+	kubeidp "github.com/vmarchese/aegis-operator/internal/identity/kubernetes"
 )
 
 const (
@@ -53,8 +56,10 @@ type IdentityReconciler struct {
 //+kubebuilder:rbac:groups=aegis.aegisproxy.io,resources=identities/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=aegis.aegisproxy.io,resources=identities/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;create;update;delete;list;watch;patch
+//+kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=get;create;update;delete;list;watch;patch
 //+kubebuilder:rbac:groups="rbac.authorization.k8s.io",resources=roles,verbs=get;list;watch;create
 //+kubebuilder:rbac:groups="rbac.authorization.k8s.io",resources=rolebindings,verbs=get;list;watch;create
+//+kubebuilder:rbac:groups="authentication.k8s.io",resources=tokenrequests,verbs=get;list;create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -89,16 +94,17 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// check deletion timestamp
 	if !identity.ObjectMeta.DeletionTimestamp.IsZero() {
-		log.Info("identity is being deleted")
+		log.Info("identity is being deleted", "identity", identity.Name, "idProvider", idProvider.GetName())
 		err = idProvider.DeleteIdentity(ctx, identity)
 		if err != nil {
-			log.Error(err, "Failed to delete identity on vault")
+			log.Error(err, "Failed to delete identity on identity provider")
 			return ctrl.Result{}, err
 		}
 
 		if controllerutil.ContainsFinalizer(identity, identityFinalizerName) {
 			updated := controllerutil.RemoveFinalizer(identity, identityFinalizerName)
 			if !updated {
+				log.Error(err, "Failed to update Identity to remove finalizer")
 				return ctrl.Result{}, err
 			}
 			if err := r.Update(ctx, identity); err != nil {
@@ -106,6 +112,8 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, err
 			}
 		}
+
+		log.Info("identity deleted", "identity", identity.Name)
 
 		return ctrl.Result{}, nil
 	}
@@ -146,26 +154,6 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	idmeta, err := idProvider.CreateIdentity(ctx, identity)
-	if err != nil {
-		log.Error(err, "Failed to create identity on vault")
-		return ctrl.Result{}, err
-	}
-
-	// add labels
-	identity.ObjectMeta.Labels = map[string]string{
-		"aegis.aegisproxy.io/identity.provider": identity.Spec.Provider,
-	}
-	if err := r.Update(ctx, identity); err != nil {
-		log.Error(err, "Failed to update Identity labels")
-		return ctrl.Result{}, err
-	}
-	identity.Status.Metadata = idmeta
-	if err := r.Status().Update(ctx, identity); err != nil {
-		log.Error(err, "Failed to update Identity status")
-		return ctrl.Result{}, err
-	}
-
 	// creating service account if not exists
 	serviceAccount := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
@@ -189,6 +177,26 @@ func (r *IdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	err = r.bindRoleToServiceAccount(ctx, serviceAccount.Namespace, serviceAccount.Name, roleName, true)
 	if err != nil {
 		log.Error(err, "Failed to bind role to service account")
+		return ctrl.Result{}, err
+	}
+
+	idmeta, err := idProvider.CreateIdentity(ctx, identity)
+	if err != nil {
+		log.Error(err, "Failed to create identity on identity provider")
+		return ctrl.Result{}, err
+	}
+
+	// add labels
+	identity.ObjectMeta.Labels = map[string]string{
+		"aegis.aegisproxy.io/identity.provider": identity.Spec.Provider,
+	}
+	if err := r.Update(ctx, identity); err != nil {
+		log.Error(err, "Failed to update Identity labels")
+		return ctrl.Result{}, err
+	}
+	identity.Status.Metadata = idmeta
+	if err := r.Status().Update(ctx, identity); err != nil {
+		log.Error(err, "Failed to update Identity status")
 		return ctrl.Result{}, err
 	}
 
@@ -284,10 +292,28 @@ func (r *IdentityReconciler) findProvider(ctx context.Context, req ctrl.Request,
 					log.Info("AzureProvider not found, trying KubernetesProvider")
 					kubeProvider := &aegisv1.KubernetesProvider{}
 					err = r.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: providerName}, kubeProvider)
-					if err == nil {
-						log.Info("KubernetesProvider found")
-						return kubernetes.New(), nil
+					if apierrors.IsNotFound(err) {
+						log.Info("KubernetesProvider not found trying AWSProvider")
+						awsProvider := &aegisv1.AWSProvider{}
+						err = r.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: providerName}, awsProvider)
+						if err == nil {
+							// get kubernetes client
+							config, err := rest.InClusterConfig()
+							if err != nil {
+								return nil, err
+							}
+
+							clientset, err := kubernetes.NewForConfig(config)
+							if err != nil {
+								return nil, err
+							}
+
+							log.Info("AWSProvider found", "region", awsProvider.Spec.Region)
+							return aws.New(awsProvider.Spec.Region, awsProvider.Spec.RoleARN, awsProvider.Spec.IdentityPoolID, clientset), nil
+						}
+						return nil, err
 					}
+					return kubeidp.New(), nil
 				}
 				log.Error(err, "Failed to find AzureProvider")
 				return nil, err
