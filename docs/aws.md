@@ -9,9 +9,48 @@ The steps for the configuration are the following:
 
 1. Create an OpenID Connect Identity provider in AWS IAM with the following configurations:
    - The audience should be `sts.amazonaws.com` 
-   - Assign a role to the logged in entitites with the Permission Policy `AmazonCognitoPowerUser`. Take note of the Role ARN
+   - Assign a role to the logged in entitites with the following Permission Policy:
 
-> TODO: the permissions could be restricted
+```json
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Action": [
+				"cognito-identity:*"
+			],
+			"Resource": "*"
+		}
+	]
+}
+```
+
+Take note of the Role ARN
+   - Edit the trust relationship as follows:
+
+```json   
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Federated": "arn:aws:iam::453898299486:oidc-provider/<your issuer name>"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+                "StringEquals": {
+                    "<your issuer name>:aud": "sts.amazonaws.com",
+                    "<your issuer name>:sub": "system:serviceaccount:operator-system:operator-controller-manager"
+                }
+            }
+        }
+    ]
+}
+```
+
+
 
 
 2. Configure an Identity Pool in AWS Cognito with the following configurations:
