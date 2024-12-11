@@ -36,7 +36,7 @@ Take note of the Role ARN
         {
             "Effect": "Allow",
             "Principal": {
-                "Federated": "arn:aws:iam::453898299486:oidc-provider/<your issuer name>"
+                "Federated": "arn:aws:iam::<your account number>:oidc-provider/<your issuer name>"
             },
             "Action": "sts:AssumeRoleWithWebIdentity",
             "Condition": {
