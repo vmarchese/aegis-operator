@@ -17,6 +17,18 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - serviceaccounts/token
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - aegis.aegisproxy.io
   resources:
   - awsproviders
@@ -172,6 +184,14 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenrequests
+  verbs:
+  - create
+  - get
+  - list
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
